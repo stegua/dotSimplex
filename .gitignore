@@ -30,3 +30,6 @@
 *.exe
 *.out
 *.app
+/msvc/dotSimplex
+/NeurIPS_Submission
+/NeurIPS_Submission_SourceCode_DataFiles.zip

@@ -1,5 +1,8 @@
 /**
- * @fileoverview Copyright (c) 2019,, XXXX YYYYY,
+ * @fileoverview Copyright (c) 2019, Stefano Gualandi,
+ *               via Ferrata, 1, I-27100, Pavia, Italy
+ *
+ * @author stefano.gualandi@gmail.com (Stefano Gualandi)
  *
  */
 
