@@ -13,12 +13,10 @@
 #include <cassert>
 #include <chrono>
 #include <cinttypes>
+#include <fstream>
 #include <limits>
 #include <random>
-
-#include <fstream>
 #include <sstream>
-
 #include <vector>
 using std::vector;
 
@@ -259,53 +257,53 @@ void solveSeparationCore(const MeasureRk& Mu, const vector<Cost>& U,
   }
 }
 
-void solveSeparationGPU(const concurrency::array_view<Cost, 2> xv,
-                        vector<Cost>& U,
-                        const concurrency::array_view<Cost, 2> yv,
-                        vector<Cost>& V, DOT::FVars& vars, int n, Cost vmin) {
-  //  Avoid useless memory allocations
-  concurrency::array_view<Cost> Uv((int)U.size(), &U[0]);
-  concurrency::array_view<Cost> Vv((int)V.size(), &V[0]);
-
-  concurrency::array_view<DOT::FVar> cv(vars.size(), vars);
-  int m = U.size();
-
-  concurrency::parallel_for_each(
-      cv.extent, [=](concurrency::index<1> idx) restrict(amp) {
-        // It is unclear whether it worths or it slows down the exectution
-        // if (Uv[idx] > vmin + FEASIBILITY_TOL) {
-        Cost best_v = -PRIC_TOL;
-        Cost best_c = -1;
-        int best_j = 0;
-
-        for (int j = 0; j < n; ++j) {
-          Cost violation = Uv[idx] - Vv[j];
-          if (violation > -best_v) {
-            Cost c_ij = 0;
-            for (int k = 0; k < K; ++k)
-              c_ij += (xv(k, idx[0]) - yv(k, j)) * (xv(k, idx[0]) - yv(k, j));
-
-            violation = c_ij - violation;
-            if (violation < best_v) {
-              best_v = violation;
-              best_c = c_ij;
-              best_j = j;
-            }
-          }
-        }
-
-        // Store most violated cuts for element i
-        cv[idx].b = m + best_j;
-        cv[idx].c = best_c;
-        //}
-      });
-
-  try {
-    cv.synchronize();
-  } catch (const Concurrency::accelerator_view_removed& e) {
-    fprintf(stdout, "solveSeparationGPU: %s\n", e.what());
-  }
-}
+// void solveSeparationGPU(const concurrency::array_view<Cost, 2> xv,
+//                        vector<Cost>& U,
+//                        const concurrency::array_view<Cost, 2> yv,
+//                        vector<Cost>& V, DOT::FVars& vars, int n, Cost vmin) {
+//  //  Avoid useless memory allocations
+//  concurrency::array_view<Cost> Uv((int)U.size(), &U[0]);
+//  concurrency::array_view<Cost> Vv((int)V.size(), &V[0]);
+//
+//  concurrency::array_view<DOT::FVar> cv(vars.size(), vars);
+//  int m = U.size();
+//
+//  concurrency::parallel_for_each(
+//      cv.extent, [=](concurrency::index<1> idx) restrict(amp) {
+//        // It is unclear whether it worths or it slows down the exectution
+//        // if (Uv[idx] > vmin + FEASIBILITY_TOL) {
+//        Cost best_v = -PRIC_TOL;
+//        Cost best_c = -1;
+//        int best_j = 0;
+//
+//        for (int j = 0; j < n; ++j) {
+//          Cost violation = Uv[idx] - Vv[j];
+//          if (violation > -best_v) {
+//            Cost c_ij = 0;
+//            for (int k = 0; k < K; ++k)
+//              c_ij += (xv(k, idx[0]) - yv(k, j)) * (xv(k, idx[0]) - yv(k, j));
+//
+//            violation = c_ij - violation;
+//            if (violation < best_v) {
+//              best_v = violation;
+//              best_c = c_ij;
+//              best_j = j;
+//            }
+//          }
+//        }
+//
+//        // Store most violated cuts for element i
+//        cv[idx].b = m + best_j;
+//        cv[idx].c = best_c;
+//        //}
+//      });
+//
+//  try {
+//    cv.synchronize();
+//  } catch (const Concurrency::accelerator_view_removed& e) {
+//    fprintf(stdout, "solveSeparationGPU: %s\n", e.what());
+//  }
+//}
 
 // void solveSeparationGPUTile(concurrency::array_view<Cost, 2> xv,
 //                            vector<Cost>& U,
@@ -480,21 +478,21 @@ void ColumnGeneration(const MeasureRk& Mu, const MeasureRk& Nu, int algo,
   vector<Cost> A(m, 0);
   vector<Cost> B(n, 0);
 
-  // Support for GPU
-  vector<Cost> XView(K * Mu.size());
-  for (int i = 0; i < m; ++i) {
-    auto p = Mu.getP(i);
-    for (int k = 0; k < K; ++k) XView[i + k * m] = p[k];
-  }
+  //// Support for GPU
+  // vector<Cost> XView(K * Mu.size());
+  // for (int i = 0; i < m; ++i) {
+  //  auto p = Mu.getP(i);
+  //  for (int k = 0; k < K; ++k) XView[i + k * m] = p[k];
+  //}
 
-  vector<Cost> YView(K * Nu.size());
-  for (int i = 0; i < n; ++i) {
-    auto p = Nu.getP(i);
-    for (int k = 0; k < K; ++k) YView[i + k * m] = p[k];
-  }
+  // vector<Cost> YView(K * Nu.size());
+  // for (int i = 0; i < n; ++i) {
+  //  auto p = Nu.getP(i);
+  //  for (int k = 0; k < K; ++k) YView[i + k * m] = p[k];
+  //}
 
-  const concurrency::array_view<Cost, 2> xv(K, m, &XView[0]);
-  const concurrency::array_view<Cost, 2> yv(K, n, &YView[0]);
+  // const concurrency::array_view<Cost, 2> xv(K, m, &XView[0]);
+  // const concurrency::array_view<Cost, 2> yv(K, n, &YView[0]);
 
   DotSimplex<FlowType, CostType>::ProblemType status = simplex.run();
 
@@ -535,7 +533,7 @@ void ColumnGeneration(const MeasureRk& Mu, const MeasureRk& Nu, int algo,
     if (algo == 0) cmp_tot += solveSeparation(Mu, A, Nu, B, vars, umin);
     if (algo == 1) solveSeparationCore(Mu, A, Nu, B, vars, umin);
 
-    if (algo == 2) solveSeparationGPU(xv, A, yv, B, vars, n, umin);
+    // if (algo == 2) solveSeparationGPU(xv, A, yv, B, vars, n, umin);
     // if (algo == 3) solveSeparationGPUTile(xv, A, yv, B, vars, n);
 
     auto sep_e = std::chrono::high_resolution_clock::now();

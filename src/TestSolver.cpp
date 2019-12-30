@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
   // First basic test: random instances
   if (false) {
     fprintf(stdout, "First test random instances on unit square\n");
-    int n = 64 * 64 * 4;
+    int n = 64 * 64;
 
     auto Mu = DOT::R2::createRandom0N(n, n + 1);
     auto Nu = DOT::R2::createRandom0N(n, n + 13);
@@ -31,12 +31,12 @@ int main(int argc, char* argv[]) {
     // DOT::R2::ColumnGeneration(Mu, Nu, 2, "GPU 1");
     // DOT::R2::ColumnGeneration(Mu, Nu, 3, "GPU tiles");
 
-    // DOT::R2::DenseTransportationLP(Mu, Nu, 0, "Dense");
+    DOT::R2::DenseTransportationLP(Mu, Nu, 0, "Dense");
     fprintf(stdout, "-------------------------------------------\n\n");
   }
 
   // Basic test on R^300, based on word embedding vectors
-  if (true) {
+  if (false) {
     fprintf(stdout, "Second test random instances on R^300\n");
 
     int n = 32 * 32 * 4;
@@ -56,13 +56,21 @@ int main(int argc, char* argv[]) {
   }
 
   // Test with dotmark instances
-  if (false) {
+  if (true) {
     // Provide path to your data
-    std::string base = "..\\DOTA\\data\\DOTmark_1.0\\Data\\";
+#ifdef WIN32
+    std::string base =
+        "C:\\Users\\Gualandi\\Google "
+        "Drive\\Ricerca\\DOTA\\data\\DOTmark_1.0\\Data\\";
+    std::string SEP = "\\";
+#else
+    std::string base(
+        "/mnt/c/Users/Gualandi/Google "
+        "Drive/Ricerca/DOTA/data/DOTmark_1.0/Data/");
+    std::string SEP = "/";
+#endif
 
     if (argc > 3) base = argv[3];
-
-    std::string SEP = "\\";
 
     std::vector<std::string> dirs = {
         "ClassicImages",  //"ClassicImages", "CauchyDensity", "GRFmoderate",
@@ -71,10 +79,13 @@ int main(int argc, char* argv[]) {
     };
 
     std::vector<std::string> Fs = {
-        "1001.csv", "1002.csv", "1003.csv", "1004.csv", "1005.csv",
-        "1006.csv", "1007.csv", "1008.csv", "1009.csv", "1010.csv"};
+        "1001.csv", "1002.csv", "1003.csv", "1004.csv"
+        //, "1005.csv",
+        //"1006.csv", "1007.csv", "1008.csv", "1009.csv", "1010.csv"
+    };
 
-    std::vector<std::string> Ss = {"32", "64", "128", "256"};
+    std::vector<std::string> Ss = {"64"};
+    //, "64", "128", "256" };
 
     for (const auto& S : Ss) {
       for (const auto& dtype : dirs) {
@@ -87,9 +98,12 @@ int main(int argc, char* argv[]) {
               DOT::R2::MeasureR2 Mu(base + dtype + SEP + f1);
               DOT::R2::MeasureR2 Nu(base + dtype + SEP + f2);
 
-              for (int algo : vector<int>{3, 2, 1, 0})
+              for (int algo : vector<int>{1, 0})
+                //                for (int algo : vector<int>{3, 2, 1, 0})
                 DOT::R2::ColumnGeneration(Mu, Nu, algo,
                                           "CG NS " + S + " " + f11 + " " + f2);
+
+              DOT::R2::DenseTransportationLP(Mu, Nu, 0, "Dense");
             }
         }
       }

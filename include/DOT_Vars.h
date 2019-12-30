@@ -8,6 +8,7 @@
 
 #pragma once
 
+#ifdef WIN32
 #include "Windows.h"
 // respect this order for includes
 #include "Psapi.h"
@@ -19,6 +20,18 @@ double getUsedRAM() {
   double virtualMemUsedByMe = pmc.PrivateUsage;
   // Return size in MB
   return virtualMemUsedByMe / 1048576;
+}
+#else
+double getUsedRAM() { return 0; }
+#endif
+
+// trasform time points diff to milliseconds
+template <typename T>
+inline double getMs(T start, T end) {
+  return double(
+             std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+                 .count()) /
+         1000;
 }
 
 #define FEASIBILITY_TOL 1e-09

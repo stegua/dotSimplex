@@ -8,20 +8,18 @@
 
 #pragma once
 
-#include <amp.h>
-#include <amp_math.h>
+//#include <amp.h>
+//#include <amp_math.h>
 
 #include <omp.h>
 
 #include <cassert>
 #include <chrono>
 #include <cinttypes>
+#include <fstream>
 #include <limits>
 #include <random>
-
-#include <fstream>
 #include <sstream>
-
 #include <vector>
 using std::vector;
 
@@ -142,7 +140,8 @@ int solveSeparation(const MeasureR2& Mu, const vector<double>& U,
 
   int cmp = 0;
 
-  for (int i = 0; i < m; ++i)
+  for (int i = 0; i < m; ++i) {
+    // vars[i].c = -1;
     if (U[i] > FEASIBILITY_TOL + vmin) {
       double best_v = -FEASIBILITY_TOL;
       double best_c = -1;
@@ -167,6 +166,7 @@ int solveSeparation(const MeasureR2& Mu, const vector<double>& U,
       vars[i].b = m + best_j;
       vars[i].c = best_c;
     }
+  }
 
   // fprintf(stdout, "cmp: %d\n", cmp);
 
@@ -186,7 +186,8 @@ void solveSeparationCore(const MeasureR2& Mu, const vector<double>& U,
 #pragma omp parallel
   {
 #pragma omp for schedule(guided)
-    for (int i = 0; i < m; ++i)
+    for (int i = 0; i < m; ++i) {
+      //      vars[i].c = -1;
       if (U[i] > FEASIBILITY_TOL + vmin) {
         double best_v = -FEASIBILITY_TOL;
         double best_c = -1;
@@ -210,130 +211,132 @@ void solveSeparationCore(const MeasureR2& Mu, const vector<double>& U,
         vars[i].b = m + best_j;
         vars[i].c = best_c;
       }
+    }
   }
 }  // namespace R2
 
-void solveSeparationGPU(concurrency::array_view<double, 2> xv,
-                        vector<double>& U,
-                        concurrency::array_view<double, 2> yv,
-                        vector<double>& V, Vars& vars, int n, double vmin) {
-  concurrency::array_view<double> Uv((int)U.size(), &U[0]);
-  concurrency::array_view<double> Vv((int)V.size(), &V[0]);
-
-  concurrency::array_view<Var> cv(vars.size(), vars);
-  int m = U.size();
-
-  concurrency::parallel_for_each(
-      cv.extent, [=](concurrency::index<1> idx) restrict(amp) {
-        if (Uv[idx[0]] > FEASIBILITY_TOL + vmin) {
-          double best_v = -FEASIBILITY_TOL;
-          double best_c = -1;
-          int best_j = 0;
-
-          for (int j = 0; j < n; ++j) {
-            double violation = Uv[idx] - Vv[j];
-            if (violation > -best_v) {
-              double c_ij =
-                  (xv(0, idx[0]) - yv(0, j)) * (xv(0, idx[0]) - yv(0, j)) +
-                  (xv(1, idx[0]) - yv(1, j)) * (xv(1, idx[0]) - yv(1, j));
-              violation = c_ij - violation;
-              if (violation < best_v) {
-                best_v = violation;
-                best_c = c_ij;
-                best_j = j;
-              }
-            }
-          }
-
-          // Store most violated cuts for element i
-          cv[idx].b = m + best_j;
-          cv[idx].c = best_c;
-        }
-      });
-
-  try {
-    cv.synchronize();
-  } catch (const Concurrency::accelerator_view_removed& e) {
-    fprintf(stdout, "solveSeparationGPU: %s\n", e.what());
-  }
-}
-
-void solveSeparationGPUTile(concurrency::array_view<double, 2> xv,
-                            vector<double>& U,
-                            concurrency::array_view<double, 2> yv,
-                            vector<double>& V, Vars& vars, int n, double vmin) {
-  concurrency::array_view<double> Uv((int)U.size(), &U[0]);
-  concurrency::array_view<double> Vv((int)V.size(), &V[0]);
-
-  concurrency::array_view<Var> cv(vars.size(), vars);
-
-  int m = U.size();
-
-  static const int TS = 128;
-  static const int TK = 2;
-
-  concurrency::parallel_for_each(
-      cv.extent.tile<TS>(),
-      [=](concurrency::tiled_index<TS> t_idx) restrict(amp) {
-        // Prepare shared tile
-        int col = t_idx.local[0];
-        // if (Uv[col] > FEASIBILITY_TOL + vmin) {
-        int colGlobal = t_idx.global[0];
-        tile_static double A[TK][TS];
-        A[0][col] = xv(0, colGlobal);
-        A[1][col] = xv(1, colGlobal);
-        tile_static double Lu[TS];
-        Lu[col] = Uv[colGlobal];
-
-        // Local best cost
-        int best_j = 0;
-        double best_c = -1;
-        double best_v = -FEASIBILITY_TOL;
-
-        // Internal loop between pair of points
-        for (int i = 0; i < n; i += TS) {
-          tile_static double B[TK][TS];
-          B[0][col] = yv(0, i + col);
-          B[1][col] = yv(1, i + col);
-          tile_static double Lv[TS];
-          Lv[col] = Vv[i + col];
-
-          t_idx.barrier.wait();
-
-          for (int j = 0; j < TS; ++j) {
-            double violation = Lu[col] - Lv[j];
-            if (violation > -best_v) {
-              double c_ij = (A[0][col] - B[0][j]) * (A[0][col] - B[0][j]) +
-                            (A[1][col] - B[1][j]) * (A[1][col] - B[1][j]);
-              // Lower precision, but faster speed using float instead of
-              // double We do not use it for improving numerical stability
-              /*concurrency::fast_math::pow(A[0][col] - B[0][j], 2) +
-                       concurrency::fast_math::pow(A[1][col] - B[1][j],
-                 2);*/
-              violation = c_ij - violation;
-              if (violation < best_v) {
-                best_v = violation;
-                best_c = c_ij;
-                best_j = i + j;
-              }
-            }
-          }
-
-          t_idx.barrier.wait();
-        }
-
-        // Store most violated cuts for element i
-        cv[colGlobal].b = m + best_j;
-        cv[colGlobal].c = best_c;
-        //}
-      });
-
-  try {
-    cv.synchronize();
-  } catch (const Concurrency::accelerator_view_removed& e) {
-    fprintf(stdout, "solveSeparationGPUTile: %s\n", e.what());
-  }
-}
+// void solveSeparationGPU(concurrency::array_view<double, 2> xv,
+//                        vector<double>& U,
+//                        concurrency::array_view<double, 2> yv,
+//                        vector<double>& V, Vars& vars, int n, double vmin) {
+//  concurrency::array_view<double> Uv((int)U.size(), &U[0]);
+//  concurrency::array_view<double> Vv((int)V.size(), &V[0]);
+//
+//  concurrency::array_view<Var> cv(vars.size(), vars);
+//  int m = U.size();
+//
+//  concurrency::parallel_for_each(
+//      cv.extent, [=](concurrency::index<1> idx) restrict(amp) {
+//        if (Uv[idx[0]] > FEASIBILITY_TOL + vmin) {
+//          double best_v = -FEASIBILITY_TOL;
+//          double best_c = -1;
+//          int best_j = 0;
+//
+//          for (int j = 0; j < n; ++j) {
+//            double violation = Uv[idx] - Vv[j];
+//            if (violation > -best_v) {
+//              double c_ij =
+//                  (xv(0, idx[0]) - yv(0, j)) * (xv(0, idx[0]) - yv(0, j)) +
+//                  (xv(1, idx[0]) - yv(1, j)) * (xv(1, idx[0]) - yv(1, j));
+//              violation = c_ij - violation;
+//              if (violation < best_v) {
+//                best_v = violation;
+//                best_c = c_ij;
+//                best_j = j;
+//              }
+//            }
+//          }
+//
+//          // Store most violated cuts for element i
+//          cv[idx].b = m + best_j;
+//          cv[idx].c = best_c;
+//        }
+//      });
+//
+//  try {
+//    cv.synchronize();
+//  } catch (const Concurrency::accelerator_view_removed& e) {
+//    fprintf(stdout, "solveSeparationGPU: %s\n", e.what());
+//  }
+//}
+//
+// void solveSeparationGPUTile(concurrency::array_view<double, 2> xv,
+//                            vector<double>& U,
+//                            concurrency::array_view<double, 2> yv,
+//                            vector<double>& V, Vars& vars, int n, double vmin)
+//                            {
+//  concurrency::array_view<double> Uv((int)U.size(), &U[0]);
+//  concurrency::array_view<double> Vv((int)V.size(), &V[0]);
+//
+//  concurrency::array_view<Var> cv(vars.size(), vars);
+//
+//  int m = U.size();
+//
+//  static const int TS = 128;
+//  static const int TK = 2;
+//
+//  concurrency::parallel_for_each(
+//      cv.extent.tile<TS>(),
+//      [=](concurrency::tiled_index<TS> t_idx) restrict(amp) {
+//        // Prepare shared tile
+//        int col = t_idx.local[0];
+//        // if (Uv[col] > FEASIBILITY_TOL + vmin) {
+//        int colGlobal = t_idx.global[0];
+//        tile_static double A[TK][TS];
+//        A[0][col] = xv(0, colGlobal);
+//        A[1][col] = xv(1, colGlobal);
+//        tile_static double Lu[TS];
+//        Lu[col] = Uv[colGlobal];
+//
+//        // Local best cost
+//        int best_j = 0;
+//        double best_c = -1;
+//        double best_v = -FEASIBILITY_TOL;
+//
+//        // Internal loop between pair of points
+//        for (int i = 0; i < n; i += TS) {
+//          tile_static double B[TK][TS];
+//          B[0][col] = yv(0, i + col);
+//          B[1][col] = yv(1, i + col);
+//          tile_static double Lv[TS];
+//          Lv[col] = Vv[i + col];
+//
+//          t_idx.barrier.wait();
+//
+//          for (int j = 0; j < TS; ++j) {
+//            double violation = Lu[col] - Lv[j];
+//            if (violation > -best_v) {
+//              double c_ij = (A[0][col] - B[0][j]) * (A[0][col] - B[0][j]) +
+//                            (A[1][col] - B[1][j]) * (A[1][col] - B[1][j]);
+//              // Lower precision, but faster speed using float instead of
+//              // double We do not use it for improving numerical stability
+//              /*concurrency::fast_math::pow(A[0][col] - B[0][j], 2) +
+//                       concurrency::fast_math::pow(A[1][col] - B[1][j],
+//                 2);*/
+//              violation = c_ij - violation;
+//              if (violation < best_v) {
+//                best_v = violation;
+//                best_c = c_ij;
+//                best_j = i + j;
+//              }
+//            }
+//          }
+//
+//          t_idx.barrier.wait();
+//        }
+//
+//        // Store most violated cuts for element i
+//        cv[colGlobal].b = m + best_j;
+//        cv[colGlobal].c = best_c;
+//        //}
+//      });
+//
+//  try {
+//    cv.synchronize();
+//  } catch (const Concurrency::accelerator_view_removed& e) {
+//    fprintf(stdout, "solveSeparationGPUTile: %s\n", e.what());
+//  }
+//}
 
 // Compute Kantorovich-Wasserstein distance between two measures
 void DenseTransportationLP(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
@@ -406,10 +409,7 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
   // Timinig output
   auto start = std::chrono::high_resolution_clock::now();
   auto end = std::chrono::high_resolution_clock::now();
-  double elapsed =
-      double(std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-                 .count()) /
-      1000;
+  double elapsed = getMs(start, end);
 
   start = std::chrono::high_resolution_clock::now();
 
@@ -441,22 +441,22 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
   DOT::Vars vnew;
   vnew.reserve(2 * size_t(m + n) + 1);
 
-  // Support for GPU
-  const size_t K = 2;
-  vector<double> XView(K * Mu.size());
-  for (int i = 0; i < m; ++i) {
-    auto p = Mu.getP(i);
-    for (int k = 0; k < K; ++k) XView[i + k * m] = p[k];
-  }
+  //// Support for GPU
+  // const size_t K = 2;
+  // vector<double> XView(K * Mu.size());
+  // for (int i = 0; i < m; ++i) {
+  //  auto p = Mu.getP(i);
+  //  for (int k = 0; k < K; ++k) XView[i + k * m] = p[k];
+  //}
 
-  vector<double> YView(K * Nu.size());
-  for (int i = 0; i < n; ++i) {
-    auto p = Nu.getP(i);
-    for (int k = 0; k < K; ++k) YView[i + k * m] = p[k];
-  }
+  // vector<double> YView(K * Nu.size());
+  // for (int i = 0; i < n; ++i) {
+  //  auto p = Nu.getP(i);
+  //  for (int k = 0; k < K; ++k) YView[i + k * m] = p[k];
+  //}
 
-  concurrency::array_view<double, 2> xv(K, m, XView);
-  concurrency::array_view<double, 2> yv(K, n, YView);
+  // concurrency::array_view<double, 2> xv(K, m, XView);
+  // concurrency::array_view<double, 2> yv(K, n, YView);
 
   // Init the simplex
   DotSimplex<FlowType, CostType>::ProblemType status = simplex.run();
@@ -468,10 +468,7 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
     DotSimplex<FlowType, CostType>::ProblemType status = simplex.reRun();
 
     end = std::chrono::high_resolution_clock::now();
-    elapsed = double(std::chrono::duration_cast<std::chrono::milliseconds>(
-                         end - start)
-                         .count()) /
-              1000;
+    elapsed = getMs(start, end);
 
     // Take the dual values
     for (int i = 0; i < m; ++i) A[i] = -simplex.potential(i);
@@ -491,15 +488,12 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
     if (algo == 0) cmp_tot += solveSeparation(Mu, A, Nu, B, vars, umin);
     if (algo == 1) solveSeparationCore(Mu, A, Nu, B, vars, umin);
 
-    if (algo == 2) solveSeparationGPU(xv, A, yv, B, vars, n, umin);
-    if (algo == 3) solveSeparationGPUTile(xv, A, yv, B, vars, n, umin);
+    // if (algo == 2) solveSeparationGPU(xv, A, yv, B, vars, n, umin);
+    // if (algo == 3) solveSeparationGPUTile(xv, A, yv, B, vars, n, umin);
 
     auto sep_e = std::chrono::high_resolution_clock::now();
-    auto sep_elapsed =
-        double(
-            std::chrono::duration_cast<std::chrono::milliseconds>(sep_e - sep_s)
-                .count()) /
-        1000;
+    auto sep_elapsed = getMs(start, end);
+
     sep_tot += sep_elapsed;
     time_tot += sep_elapsed;
 
@@ -507,8 +501,10 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
 
     vnew.clear();
 
-    for (const auto& v : vars)
-      if (v.c > -1) vnew.emplace_back(v);
+    for (auto& v : vars) {
+      if (v.c > -1) vnew.push_back(v);
+      v.c = -1;
+    }
 
     if (vnew.empty()) break;
 
@@ -519,17 +515,17 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
     int new_arcs = simplex.updateArcs(vnew);
 
     end = std::chrono::high_resolution_clock::now();
-    elapsed += double(std::chrono::duration_cast<std::chrono::milliseconds>(
-                          end - start)
-                          .count()) /
-               1000;
+    elapsed += getMs(start, end);
+
     mas_tot += elapsed;
     time_tot += elapsed;
     n_cuts += new_arcs;
 
-    // fprintf(stdout, "it %d: Time %.3f - Value: %.6f - NumRows: %d -
-    // SepTime:
-    // %.6f - GuTime: %.6f - Cuts: %d\n",
+    fobj = simplex.totalCost();
+
+    // fprintf(stdout,
+    //        "it %d: Time %.3f - Value: %.6f - NumRows: %d - SepTime: % .6f - "
+    //        "GuTime: % .6f - Cuts: % d\n ",
     //        it, time_tot, fobj, simplex.num_arcs(), sep_elapsed, elapsed,
     //        new_arcs);
     ++it;
@@ -539,10 +535,8 @@ void ColumnGeneration(const MeasureR2& Mu, const MeasureR2& Nu, int algo,
   simplex.checkFeasibility();
 
   end = std::chrono::high_resolution_clock::now();
-  elapsed =
-      double(std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-                 .count()) /
-      1000;
+  elapsed = getMs(start, end);
+
   fprintf(stdout,
           "%s %d it %d FinalTime %.4f SepTime %.4f Master %.4f Value %.6f "
           "AddedVars %d NumVars %d CmpTot %d CmpRatio %.2f RAM %.2f\n",
