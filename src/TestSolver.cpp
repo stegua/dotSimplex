@@ -79,7 +79,8 @@ int main(int argc, char* argv[]) {
     };
 
     std::vector<std::string> Fs = {
-        "1001.csv", "1002.csv", "1003.csv", "1004.csv"
+        //"1001.csv", "1002.csv",
+        "1003.csv", "1004.csv"
         //, "1005.csv",
         //"1006.csv", "1007.csv", "1008.csv", "1009.csv", "1010.csv"
     };

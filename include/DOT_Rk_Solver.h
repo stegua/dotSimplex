@@ -23,16 +23,11 @@ using std::vector;
 #include <array>
 using std::array;
 
-#include "DOT_DotSimplex.h"
-#include "DOT_Vars.h"
-
-#ifdef _WIN32
-#include <amp.h>
-#include <amp_math.h>
-#endif
-
 #include <emmintrin.h>
 #include <immintrin.h>
+
+#include "DOT_DotSimplex.h"
+#include "DOT_Vars.h"
 
 inline double hsum_double_avx(__m256d v) {
   __m128d vlow = _mm256_castpd256_pd128(v);

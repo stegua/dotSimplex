@@ -8,9 +8,6 @@
 
 #pragma once
 
-//#include <amp.h>
-//#include <amp_math.h>
-
 #include <omp.h>
 
 #include <cassert>
@@ -141,7 +138,6 @@ int solveSeparation(const MeasureR2& Mu, const vector<double>& U,
   int cmp = 0;
 
   for (int i = 0; i < m; ++i) {
-    // vars[i].c = -1;
     if (U[i] > FEASIBILITY_TOL + vmin) {
       double best_v = -FEASIBILITY_TOL;
       double best_c = -1;
@@ -157,7 +153,7 @@ int solveSeparation(const MeasureR2& Mu, const vector<double>& U,
             best_v = violation;
             best_c = c_ij;
             best_j = j;
-            if (U[i] <= -best_v + vmin) break;
+            // if (U[i] <= -best_v + vmin) break;
           }
         }
       }
@@ -185,7 +181,7 @@ void solveSeparationCore(const MeasureR2& Mu, const vector<double>& U,
 
 #pragma omp parallel
   {
-#pragma omp for schedule(guided)
+#pragma omp for schedule(dynamic, 1)
     for (int i = 0; i < m; ++i) {
       //      vars[i].c = -1;
       if (U[i] > FEASIBILITY_TOL + vmin) {
@@ -202,7 +198,7 @@ void solveSeparationCore(const MeasureR2& Mu, const vector<double>& U,
               best_v = violation;
               best_c = c_ij;
               best_j = j;
-              if (U[i] <= -best_v + vmin) break;
+              // if (U[i] <= -best_v + vmin) break;
             }
           }
         }

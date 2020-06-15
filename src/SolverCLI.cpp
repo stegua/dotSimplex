@@ -6,10 +6,12 @@
  *
  */
 
+// Main entry point
+#ifdef CLI
+
 #include "DOT_R2_Solver.h"
 #include "DOT_Rk_Solver.h"
 
-// Main entry point
 int main(int argc, char* argv[]) {
   int n = 32 * 32;
   if (argc > 1) n = atoi(argv[1]);
@@ -284,3 +286,4 @@ int main(int argc, char* argv[]) {
   }
   return EXIT_SUCCESS;
 }
+#endif

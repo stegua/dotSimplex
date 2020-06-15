@@ -8,12 +8,12 @@
 
 #pragma once
 
-#ifdef WIN32
 #include "Windows.h"
 // respect this order for includes
 #include "Psapi.h"
 
-double getUsedRAM() {
+#ifdef WIN32
+inline double getUsedRAM() {
   PROCESS_MEMORY_COUNTERS_EX pmc;
   GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc,
                        sizeof(pmc));
